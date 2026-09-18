@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Logo</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script>
+    const canvas = document.getElementById("c");
+    const ctx = canvas.getContext("2d", { alpha: false });
+
+    const SAMPLE = 200;
+    const ALPHA_CUTOFF = 24;
+
+    let particles = [];
+    let width = 0;
+    let height = 0;
+    let dpr = 1;
+    let logoSize = 0;
+    let time = 0;
+    let last = 0;
+
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      logoSize = Math.min(width, height) * 0.4;
+    }
+
+    function hash(n) {
+      const s = Math.sin(n * 127.1) * 43758.5453;
+      return s - Math.floor(s);
+    }
+
+    async function loadParticles() {
+      const img = new Image();
+      img.src = "logo.png";
+      await img.decode();
+
+      const off = document.createElement("canvas");
+      off.width = SAMPLE;
+      off.height = SAMPLE;
+      const octx = off.getContext("2d");
+      octx.drawImage(img, 0, 0, SAMPLE, SAMPLE);
+      const { data } = octx.getImageData(0, 0, SAMPLE, SAMPLE);
+
+      const pts = [];
+      for (let y = 0; y < SAMPLE; y++) {
+        for (let x = 0; x < SAMPLE; x++) {
+          const a = data[(y * SAMPLE + x) * 4 + 3];
+          if (a < ALPHA_CUTOFF) continue;
+
+          const nx = (x + 0.5) / SAMPLE - 0.5;
+          const ny = (y + 0.5) / SAMPLE - 0.5;
+          const seed = hash(x * 13.7 + y * 91.3);
+
+          pts.push({
+            x: nx,
+            y: ny,
+            mass: Math.pow(a / 255, 0.85),
+            phase: seed * Math.PI * 2,
+            fx: 0.05 + hash(seed * 19.2) * 0.09,
+            fy: 0.04 + hash(seed * 7.4) * 0.1,
+            fx2: 0.11 + hash(seed * 3.1) * 0.08,
+            fy2: 0.09 + hash(seed * 11.6) * 0.09,
+            wobble: 0.45 + hash(seed * 4.1) * 0.7,
+            lifeA: 0.07 + hash(seed * 8.8) * 0.11,
+            lifeB: 0.05 + hash(seed * 2.6) * 0.13,
+          });
+        }
+      }
+      particles = pts;
+    }
+
+    function existence(p, t) {
+      const a = 0.5 + 0.5 * Math.sin(t * p.lifeA + p.phase);
+      const b = 0.5 + 0.5 * Math.sin(t * p.lifeB + p.phase * 1.73);
+      const fade = a < 0.22 && b < 0.22 ? (a * b) / 0.05 : 1;
+      return Math.min(1, fade * (0.9 + 0.1 * a));
+    }
+
+    function draw() {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#fff";
+
+      const t = time;
+      const cx = width * 0.5;
+      const cy = height * 0.5;
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        const exist = existence(p, t);
+        if (exist < 0.03) continue;
+
+        const x =
+          cx +
+          p.x * logoSize +
+          Math.sin(t * p.fx + p.phase) * p.wobble +
+          Math.sin(t * p.fx2 + p.phase * 1.31) * p.wobble * 0.35;
+        const y =
+          cy +
+          p.y * logoSize +
+          Math.cos(t * p.fy + p.phase * 0.91) * p.wobble +
+          Math.sin(t * p.fy2 + p.phase * 1.62) * p.wobble * 0.35;
+
+        const size = 1.15 + p.mass * 0.5;
+        ctx.globalAlpha = Math.min(1, exist * p.mass * 1.12);
+        ctx.fillRect(x - size * 0.5, y - size * 0.5, size, size);
+      }
+
+      ctx.globalAlpha = 1;
+    }
+
+    function frame(now) {
+      const dt = last ? Math.min(0.05, (now - last) / 1000) : 0.016;
+      last = now;
+      time += dt;
+      draw();
+      requestAnimationFrame(frame);
+    }
+
+    window.addEventListener("resize", resize);
+
+    (async () => {
+      resize();
+      await loadParticles();
+      requestAnimationFrame(frame);
+    })();
+  </script>
+</body>
+</html>
